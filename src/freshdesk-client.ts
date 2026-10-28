@@ -38,7 +38,7 @@ export interface CreateTicketParams {
   email?: string;
   requester_id?: number;
   priority?: 1 | 2 | 3 | 4;
-  status?: 2 | 3 | 4 | 5;
+  status?: number;
   source?: number;
   type?: string;
   group_id?: number;
@@ -480,7 +480,17 @@ export class FreshdeskClient {
   // ==================== CONVERSATIONS ====================
 
   async listConversations(ticketId: number): Promise<Conversation[]> {
-    return this.request<Conversation[]>('GET', `/tickets/${ticketId}/conversations`);
+    // The API returns at most 100 per page (30 by default), so page through all of them.
+    const perPage = 100;
+    const all: Conversation[] = [];
+    for (let page = 1; ; page++) {
+      const batch = await this.request<Conversation[]>(
+        'GET',
+        `/tickets/${ticketId}/conversations?page=${page}&per_page=${perPage}`
+      );
+      all.push(...batch);
+      if (batch.length < perPage) return all;
+    }
   }
 
   async replyToTicket(ticketId: number, params: ReplyParams): Promise<Conversation> {

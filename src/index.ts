@@ -48,6 +48,12 @@ const STATUS_MAP: Record<number, string> = {
   5: 'Closed',
 };
 
+// Accepts standard statuses (2-5) as well as custom status IDs configured in the Freshdesk account.
+const statusSchema = z
+  .string()
+  .regex(/^\d+$/, 'Status must be a numeric status ID')
+  .describe('Status ID: 2=Open, 3=Pending, 4=Resolved, 5=Closed, or the ID of a custom status');
+
 const PRIORITY_MAP: Record<number, string> = {
   1: 'Low',
   2: 'Medium',
@@ -232,7 +238,7 @@ server.tool(
     email: z.string().optional().describe('Requester email'),
     requester_id: z.number().optional().describe('Existing requester ID'),
     priority: z.enum(['1', '2', '3', '4']).optional().describe('1=Low, 2=Medium, 3=High, 4=Urgent'),
-    status: z.enum(['2', '3', '4', '5']).optional().describe('2=Open, 3=Pending, 4=Resolved, 5=Closed'),
+    status: statusSchema.optional(),
     type: z.string().optional().describe('Ticket type'),
     group_id: z.number().optional(),
     responder_id: z.number().optional(),
@@ -249,7 +255,7 @@ server.tool(
         email: params.email,
         requester_id: params.requester_id,
         priority: params.priority ? parseInt(params.priority) as 1 | 2 | 3 | 4 : undefined,
-        status: params.status ? parseInt(params.status) as 2 | 3 | 4 | 5 : undefined,
+        status: params.status ? parseInt(params.status) : undefined,
         type: params.type,
         group_id: params.group_id,
         responder_id: params.responder_id,
@@ -297,12 +303,16 @@ server.tool(
     subject: z.string().optional(),
     description: z.string().optional(),
     priority: z.enum(['1', '2', '3', '4']).optional(),
-    status: z.enum(['2', '3', '4', '5']).optional(),
+    status: statusSchema.optional(),
     type: z.string().optional(),
     group_id: z.number().optional(),
     responder_id: z.number().optional(),
     company_id: z.number().optional().describe('Company ID to associate with this ticket'),
     tags: z.array(z.string()).optional(),
+    custom_fields: z
+      .record(z.unknown())
+      .optional()
+      .describe('Custom ticket fields keyed by field name, e.g. {"cf_example_field": "value"}'),
   },
   async ({ ticket_id, ...params }) => {
     try {
@@ -310,12 +320,13 @@ server.tool(
       if (params.subject) updateParams.subject = params.subject;
       if (params.description) updateParams.description = params.description;
       if (params.priority) updateParams.priority = parseInt(params.priority) as 1 | 2 | 3 | 4;
-      if (params.status) updateParams.status = parseInt(params.status) as 2 | 3 | 4 | 5;
+      if (params.status) updateParams.status = parseInt(params.status);
       if (params.type) updateParams.type = params.type;
       if (params.group_id) updateParams.group_id = params.group_id;
       if (params.responder_id) updateParams.responder_id = params.responder_id;
       if (params.company_id) updateParams.company_id = params.company_id;
       if (params.tags) updateParams.tags = params.tags;
+      if (params.custom_fields) updateParams.custom_fields = params.custom_fields;
 
       const ticket = await client.updateTicket(ticket_id, updateParams);
       return { content: [{ type: 'text', text: `Ticket updated!\n\n${formatTicket(ticket as unknown as Record<string, unknown>)}` }] };
