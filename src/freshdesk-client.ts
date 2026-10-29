@@ -30,6 +30,17 @@ export interface Ticket {
   created_at: string;
   updated_at: string;
   custom_fields?: Record<string, unknown>;
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  id: number;
+  name: string;
+  content_type: string;
+  size: number;
+  attachment_url: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface CreateTicketParams {
@@ -123,7 +134,7 @@ export interface Conversation {
   ticket_id: number;
   created_at: string;
   updated_at: string;
-  attachments: unknown[];
+  attachments: Attachment[];
 }
 
 export interface ReplyParams {
@@ -475,6 +486,38 @@ export class FreshdeskClient {
 
   async updateTicket(ticketId: number, params: Partial<CreateTicketParams>): Promise<Ticket> {
     return this.request<Ticket>('PUT', `/tickets/${ticketId}`, params);
+  }
+
+  // ==================== ATTACHMENTS ====================
+
+  /**
+   * Download a file referenced by a ticket or conversation (attachment or inline image).
+   * These URLs are pre-signed, so the API key is only sent to Freshdesk hosts, and only
+   * if the unauthenticated request is rejected. Only https URLs are fetched.
+   */
+  async downloadFile(url: string, maxBytes: number): Promise<{ data: Buffer; contentType: string }> {
+    const target = new URL(url);
+    if (target.protocol !== 'https:') {
+      throw new Error('Only https URLs can be downloaded');
+    }
+
+    let response = await fetch(target, { redirect: 'follow' });
+    if ((response.status === 401 || response.status === 403) && target.hostname.endsWith('.freshdesk.com')) {
+      response = await fetch(target, { headers: { Authorization: this.authHeader }, redirect: 'follow' });
+    }
+    if (!response.ok) {
+      throw new Error(`Download failed (${response.status})`);
+    }
+
+    const declared = Number(response.headers.get('content-length') ?? 0);
+    if (declared > maxBytes) {
+      throw new Error(`File is too large (${declared} bytes, limit ${maxBytes})`);
+    }
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.length > maxBytes) {
+      throw new Error(`File is too large (${data.length} bytes, limit ${maxBytes})`);
+    }
+    return { data, contentType: (response.headers.get('content-type') ?? '').split(';')[0].trim() };
   }
 
   // ==================== CONVERSATIONS ====================
